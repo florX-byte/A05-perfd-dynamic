@@ -1,0 +1,1 @@
+#!/system/bin/shecho "thermal_manager disabled"exit 0

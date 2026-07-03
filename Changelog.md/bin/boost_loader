@@ -1,0 +1,121 @@
+#!/system/bin/sh
+
+LIST_FILE="/data/adb/modules/A055-perfd/boost_list.txt"
+LOG_FILE="/data/adb/modules/A055-perfd/perfd.log"
+
+# Reset/Hapus log lama setiap kali script ini baru berjalan (saat boot) agar tidak bengkak
+rm -f "$LOG_FILE"
+touch "$LOG_FILE"
+
+# Fungsi helper untuk mencatat log dengan stempel waktu
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+log_msg "[START] A055-perfd Tuning Daemon dimulai."
+
+# Fungsi helper untuk optimasi proses core sistem
+tune_process() {
+    local name=$1 priority=$2 niceness=$3 ionice_cls=$4
+    local pids=$(pidof "$name")
+    
+    if [ -z "$pids" ]; then
+        log_msg "[WARN] Proses sistem '$name' tidak ditemukan/tidak berjalan."
+        return
+    fi
+    
+    for pid in $pids; do
+        [ -n "$priority" ] && chrt -f -p "$priority" "$pid" 2>/dev/null
+        [ -n "$niceness" ] && renice -n "$niceness" -p "$pid" 2>/dev/null
+        echo "$pid" > /dev/cpuset/top-app/tasks 2>/dev/null
+        [ -n "$ionice_cls" ] && ionice -c "$ionice_cls" -n 0 -p "$pid" 2>/dev/null
+        log_msg "[CORE] Tweak sukses pada $name (PID: $pid) -> chrt:$priority, renice:$niceness"
+    done
+}
+
+# ==========================================
+# 1. OPTIMASI SISTEM INTI (Eksekusi Sekali)
+# ==========================================
+tune_process "surfaceflinger" 75 -20 2
+tune_process "com.android.systemui" 67 -15 2
+tune_process "android.hardware.audio.service.mediatek" 50 -15
+
+# --- TAMBAHAN UNTUK MEMPERCEPAT BUKA APLIKASI (APP LAUNCH BOOST) ---
+# Tweak pada Zygote untuk proses Forking aplikasi super cepat
+for zygote_proc in zygote64 zygote; do
+    Z_PIDS=$(pidof "$zygote_proc")
+    for z_pid in $Z_PIDS; do
+        renice -n -20 -p "$z_pid" 2>/dev/null
+        ionice -c 2 -n 2 -p "$z_pid" 2>/dev/null
+        echo "$z_pid" > /dev/cpuset/top-app/tasks 2>/dev/null
+        log_msg "[CORE] App Launch Boost sukses pada $zygote_proc (PID: $z_pid)"
+    done
+done
+
+# Tweak pada installd untuk penanganan cache direktori APK yang responsif
+tune_process "installd" "" -20 2
+# ------------------------------------------------------------------
+
+# Tuning Khusus System Server & Thread Pentingnya
+SYS_PID=$(pidof system_server)
+if [ -n "$SYS_PID" ]; then
+    chrt -r -p 55 "$SYS_PID" 2>/dev/null
+    renice -n -20 -p "$SYS_PID" 2>/dev/null
+    echo "$SYS_PID" > /dev/cpuset/top-app/tasks 2>/dev/null
+    ionice -c 2 -n 0 -p "$SYS_PID" 2>/dev/null
+    log_msg "[CORE] Tweak sukses pada system_server (PID: $SYS_PID)"
+
+    # Boost Thread penting di dalam system_server
+THREADS=$(ls /proc/$SYS_PID/task 2>/dev/null | xargs -I {} grep -lE "Input|android.display|Composer|hwui|RenderThread|main|UnityMain|GLThread|vulkan|UI" /proc/$SYS_PID/task/{}/comm 2>/dev/null | cut -d'/' -f5)
+    for TID in $THREADS; do
+        chrt -f -p 70 "$TID" 2>/dev/null
+        echo "$TID" > /dev/cpuset/top-app/tasks 2>/dev/null
+    done
+    log_msg "[CORE] Berhasil mem-boost internal threads untuk system_server"
+fi
+
+# Array bantuan untuk melacak aplikasi yang *sudah* di-tweak di dalam loop 
+# agar log tidak menulis baris yang sama setiap 8 detik (bikin log bersih)
+ALREADY_TUNED=""
+
+# ==========================================
+# 2. LOOP MONITORING DAFATAR GAME/APP
+# ==========================================
+log_msg "[LOOP] Memulai pemantauan daftar aplikasi di boost_list.txt..."
+
+while true; do
+    if [ -f "$LIST_FILE" ]; then
+        # Reset tracker aplikasi aktif di siklus ini
+        CURRENT_ACTIVE=""
+
+        while IFS='|' read -r pkg renice cores || [ -n "$pkg" ]; do
+            [ -z "$pkg" ] && continue
+            
+            PIDS=$(pidof "$pkg")
+            if [ -n "$PIDS" ]; then
+                # Catat bahwa aplikasi ini sedang aktif di siklus sekarang
+                CURRENT_ACTIVE="$CURRENT_ACTIVE $pkg"
+
+                for PID in $PIDS; do
+                  # Cek apakah nama paket ini sudah di-tweak di siklus sebelumnya atau belum
+                    if ! echo "$ALREADY_TUNED" | grep -q "$pkg"; then
+                        renice -n "$renice" -p "$PID" 2>/dev/null
+                        echo "$PID" > /dev/cpuset/top-app/tasks 2>/dev/null
+                        [ -n "$cores" ] && taskset -p "$cores" "$PID" 2>/dev/null
+                        
+                        log_msg "[APP] Aplikasi terdeteksi! Sukses tweak $pkg (PID: $PID) -> renice:$renice, cores:$cores"
+                    fi
+                done
+            fi
+        done < "$LIST_FILE"
+        
+        # Simpan state PID yang aktif agar di loop berikutnya tidak nyepam log jika aplikasi yang sama masih dibuka
+        # Menggunakan tracker gabungan yang diisi sepanjang pembacaan file
+        ALREADY_TUNED="$CURRENT_ACTIVE"
+
+    else
+        log_msg "[ERROR] File konfigurasi $LIST_FILE tidak ditemukan!"
+    fi
+    
+    sleep 8
+done

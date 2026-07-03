@@ -1,0 +1,45 @@
+#!/system/bin/sh
+
+LIST_FILE="/data/adb/modules/A055-perfd/boost_list.txt"
+LOG_FILE="/data/adb/modules/A055-perfd/perfd.log"
+
+# Fungsi untuk mencatat log
+log_msg() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+# Buat file jika belum ada
+mkdir -p "$(dirname "$LIST_FILE")"
+touch "$LIST_FILE"
+
+# Cek argumen
+if [ $# -ne 3 ]; then
+  echo "Usage: boost_add <package_name> <renice> <cores>"
+  echo "Contoh: boost_add com.tencent.ig -15 4-7"
+  exit 1
+fi
+
+PKG=$1
+RENICE=$2
+CORES=$3
+
+# Cek duplikasi
+if grep -q "^$PKG|" "$LIST_FILE"; then
+  echo "[!] $PKG sudah ada di boost_list.txt"
+  exit 1
+fi
+
+# Tambahkan ke konfigurasi
+echo "$PKG|$RENICE|$CORES" >> "$LIST_FILE"
+echo "[+] Berhasil ditambahkan: $PKG | $RENICE | $CORES"
+log_msg "[CLI] Menambahkan konfigurasi baru: $PKG | Renice: $RENICE | Cores: $CORES"
+
+# Langsung optimasikan jika aplikasi ternyata sedang berjalan
+PIDS=$(pidof "$PKG")
+if [ -n "$PIDS" ]; then
+  for PID in $PIDS; do
+    renice -n "$RENICE" -p "$PID" 2>/dev/null && log_msg "[CLI] Applied renice $RENICE ke $PKG (PID: $PID)"
+    echo "$PID" > /dev/cpuset/top-app/tasks 2>/dev/null && log_msg "[CLI] Moved $PKG (PID: $PID) ke top-app cpuset"
+    [ -n "$CORES" ] && taskset -p "$CORES" "$PID" 2>/dev/null && log_msg "[CLI] Set affinity $CORES ke $PKG (PID: $PID)"
+  done
+fi

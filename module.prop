@@ -1,0 +1,6 @@
+id=A055-perfd
+name=A055-perfd (UI7 Optimized + Balanced Tweak)
+version=v2.5
+versionCode=7
+author=Theman Fromfar (Modified by Goskjk Ydyu99)
+description=⚙️ Boost kernel & UI responsiveness module for Galaxy A05 (MTK G85) on One UI 7 (Android 15). Includes CPU/GPU dynamic boost, task scheduler, memory tuning, thermal bypass, and I/O latency tweaks. 💡If boot issue or tweaks not applied, reboot once again.

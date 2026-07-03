@@ -1,0 +1,1 @@
+#!/system/bin/shecho "thermal disabled"exit 0

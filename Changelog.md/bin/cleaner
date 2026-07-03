@@ -1,0 +1,197 @@
+#!/system/bin/sh
+
+MODE="$1"
+REBOOT_MODE="$2"
+MOD_DIR="/data/local/tmp"
+DEXOPT_LOG="$MOD_DIR/dexopt_progress.log"
+COMPILE_LOG="$MOD_DIR/compile_result.log"
+ERROR_LOG="$MOD_DIR/compile_errors.log"
+STATUS_LOG="$MOD_DIR/compile_status.log"
+
+EXCLUDE_KEYWORDS="termux|inputmethod|keyboard|keyguard|systemui|launcher|magisk|bash|sh|toybox|busybox|su|audioserver|mediaserver|surfaceflinger|vendor|logd"
+THRESHOLD=61440  # ~60MB
+
+# === USAGE MENU ===
+if [ "$MODE" = "help" ] || [ -z "$MODE" ]; then
+  echo "📘 Penggunaan: cleaner <mode> [--reboot|--recovery]"
+  echo "\n📋 Mode DexOpt:\n 🚀 Performa:  speed, speed-profile\n 🔋 Baterai:   battery\n 💾 Storage:   space\n 🎯 Reset:     reset, everything\n 🔐 Lanjutan:  run-from-apk, verify, verify-profile"
+  echo "\n🧪 Contoh: cleaner speed-profile --reboot"
+  exit 0
+fi
+
+# Validasi Mode
+echo "speed speed-profile battery space everything reset run-from-apk verify verify-profile" | grep -qw "$MODE" || {
+  echo "❌ Mode tidak valid: '$MODE'. Ketik 'cleaner help'"
+  exit 1
+}
+
+# === [1] KILL APLIKASI USER MEMORI BESAR ===
+echo "\n🚀 [1/6] Mematikan background apps besar (>60MB)..."
+ps -A -o PID,RSS,NAME 2>/dev/null | grep -E "com\." | while read -r PID RSS NAME; do
+  echo "$NAME" | grep -qE "$EXCLUDE_KEYWORDS" && continue
+  if [ "$RSS" -gt "$THRESHOLD" ]; then
+    kill -9 "$PID" 2>/dev/null && echo "[+] Killed: $NAME (${RSS}KB)"
+  fi
+done
+
+# === [2] CLEAN RAM CACHE & DROP CACHES ===
+echo "🧹 [2/6] Mengosongkan Cache RAM Sistem..."
+sync && echo 3 > /proc/sys/vm/drop_caches
+
+# === [3] FSTRIM STORAGE VIA BUSYBOX/ANDROID ===
+echo "💽 [3/6] Melakukan fstrim untuk optimasi storage..."
+for mnt in /data /cache /system /vendor; do
+  [ -d "$mnt" ] && (fstrim -v "$mnt" || /data/adb/magisk/busybox fstrim -v "$mnt") 2>/dev/null
+done
+
+# === [4] HAPUS CACHE INTERNAL APLIKASI ===
+echo "🗑️ [4/6] Menghapus temporary cache directory user..."
+find /data/data -mindepth 2 -maxdepth 2 -type d -name "cache" 2>/dev/null | while read -r cache_dir; do
+  rm -rf "$cache_dir"/* 2>/dev/null
+done
+
+# === [5] PROSES DEXOPT COMPILE INJECTOR ===
+echo "⚙️ [5/6] Memulai Kompilasi Paket Android: Mode [$MODE]"
+> "$COMPILE_LOG"
+> "$ERROR_LOG"
+
+if [ "$MODE" = "reset" ] || [ "$MODE" = "everything" ]; then
+  cmd package compile -a --reset >/dev/null 2>&1
+  echo "[✓] Semua basis kompilasi aplikasi berhasil di-reset ke awal." | tee -a "$COMPILE_LOG"
+else
+  # Ambil status kompilasi global sekali saja untuk menghemat CPU I/O
+  ALL_DUMPS=$(cmd package dump all 2>/dev/null | grep -E "Package \[|status=")
+
+  pm list packages -3 | cut -d: -f2 | grep -vE 'systemui|keyguard|inputmethod|launcher|settings' | while read -r pkg; do
+    # Logika pencarian status super cepat tanpa memanggil cmd dump berulang kali
+    CURRENT_MODE=$(echo "$ALL_DUMPS" | grep -A1 "Package \[$pkg\]" | grep "status=" | grep -o "$MODE" | head -n1)
+
+    if [ "$CURRENT_MODE" = "$MODE" ]; then
+      echo "[✓] SKIP    - $pkg (Sudah $MODE)" >> "$COMPILE_LOG"
+    else
+      echo "[•] Compile - $pkg"
+      if cmd package compile -m "$MODE" --force-dex-opt "$pkg" >>"$COMPILE_LOG" 2>>"$ERROR_LOG"; then
+        echo "[✓] SUCCESS - $pkg" >> "$COMPILE_LOG"
+      else
+        echo "[✗] FAILED  - $pkg" >> "$COMPILE_LOG"
+      fi
+    fi
+  done
+fi
+
+# Rekap Singkat Hasil Kompilasi
+TOTAL_OK=$(grep -c 'SUCCESS' "$COMPILE_LOG")
+TOTAL_SKIP=$(grep -c 'SKIP' "$COMPILE_LOG")
+TOTAL_FAIL=$(grep -c 'FAILED' "$COMPILE_LOG")
+echo "📊 Rekap Compile: Sukses = $TOTAL_OK | Skip = $TOTAL_SKIP | Gagal = $TOTAL_FAIL"
+
+# === [6] BACKGROUND OPTIMIZATION JOB (DEXOPT SYSTEM) ===
+echo "⏳ [6/6] Memicu Android Background DexOpt Engine..."
+> "$DEXOPT_LOG"
+cmd package bg-dexopt-job > "$DEXOPT_LOG" 2>&1 &
+
+# Batasan timeout 14 detik agar script tidak stuck selamanya di background terminal
+TIMEOUT=7
+while [ $TIMEOUT -gt 0 ]; do
+  if grep -qE "Job finished|Success" "$DEXOPT_LOG" 2>/dev/null; then
+     break
+  fi
+  sleep 2
+  TIMEOUT=$((TIMEOUT - 1))
+done
+echo "[✓] Android Optimization Job Selesai Dimuat."
+
+# === [7] EXPORT STATUS AKHIR ===
+echo "🔍 [Bonus] Mengecek & menyimpan status akhir kompilasi..."
+cmd package dump all 2>/dev/null | grep -E "Package \[|status=" > "$STATUS_LOG"
+echo "[✓] Status kompilasi penuh disimpan di: $STATUS_LOG"
+
+# === SYSTEM REBOOT POLICY ===
+if [ "$REBOOT_MODE" = "--reboot" ]; then
+  echo "🔁 Menggelar reboot sistem..." && sleep 2 && reboot
+elif [ "$REBOOT_MODE" = "--recovery" ]; then
+  echo "🔁 Menggelar reboot ke recovery..." && sleep 2 && reboot recovery
+fi
+Boost ===
+echo "🛠️ [6/6] Optimasi sistem..."
+# CPUSets
+for grp in foreground background system-background top-app camera-daemon restricted; do
+  safe_write "/dev/cpuset/$grp/cpus" "0-7"
+done
+
+# I/O
+safe_write "/sys/block/mmcblk0/queue/scheduler" bfq
+safe_write "/sys/block/mmcblk0/queue/read_ahead_kb" 4096
+safe_write "/sys/block/mmcblk0/queue/iostats" 0
+safe_write "/sys/block/mmcblk0boot0/queue/scheduler" bfq
+safe_write "/sys/block/mmcblk0/queue/nomerges" 1
+
+for param in back_seek_max 16 back_seek_penalty 2 fifo_expire_async 250 fifo_expire_sync 125 \
+low_latency 1 max_budget 32 slice_idle 0 slice_idle_us 0 strict_guarantees 0 timeout_sync 60; do
+  safe_write "/sys/block/mmcblk0/queue/iosched/${param% *}" "${param#* }"
+done
+sync; echo 3 > /proc/sys/vm/drop_caches
+
+# Refresh rate & GPU
+settings put system peak_refresh_rate 60
+settings put system min_refresh_rate 60
+settings put global enable_gpu_debug_layers 0
+settings put global skia_shader_cache_enabled 1
+settings put global debug.sf.latch_unsignaled 1
+settings put global persist.sys.sf.native_mode 2
+
+# uClamp
+safe_write "/proc/sys/kernel/sched_util_clamp_max" 1024
+safe_write "/proc/sys/kernel/sched_util_clamp_min" 1024
+safe_write "/proc/sys/kernel/sched_util_clamp_min_rt_default" 1
+safe_write "/dev/cpuctl/top-app/cpu.uclamp.latency_sensitive" 1
+safe_write "/dev/cpuctl/foreground/cpu.uclamp.latency_sensitive" 1
+
+# Scheduler
+SYSCTL="/proc/sys/kernel"
+safe_write "$SYSCTL/sched_deadline_period_min_us" 100
+safe_write "$SYSCTL/sched_deadline_period_max_us" 4194304
+safe_write "$SYSCTL/sched_energy_aware" 1
+safe_write "$SYSCTL/sched_pelt_multiplier" 4
+safe_write "$SYSCTL/sched_rr_timeslice_ms" 40
+safe_write "$SYSCTL/sched_rt_period_us" 1000000
+safe_write "$SYSCTL/sched_rt_runtime_us" 950000
+safe_write "$SYSCTL/sched_util_clamp_min" 128
+safe_write "$SYSCTL/sched_util_clamp_max" 1024
+safe_write "$SYSCTL/sched_util_clamp_min_rt_default" 128
+safe_write "$SYSCTL/sched_schedstats" 1
+
+# Touch Boost
+for t in enable boost_up boost_down boost_fg boost_ta; do safe_write "/proc/touch_boost/$t" 1; done
+safe_write "/proc/touch_boost/boost_duration" 250
+safe_write "/proc/touch_boost/force_stop_boost" 0
+safe_write "/proc/touch_boost/idleprefer_fg" 0
+safe_write "/proc/touch_boost/idleprefer_ta" 0
+safe_write "/proc/touch_boost/boost_opp_cluster_0" 3
+safe_write "/proc/touch_boost/boost_opp_cluster_1" 4
+safe_write "/proc/touch_boost/boost_opp_cluster_2" -1
+
+echo ""
+echo "✅ Semua optimasi selesai. Mode: $MODE"
+
+# Ringkasan log
+echo ""
+echo "📄 Ringkasan DexOpt:"
+tail -n 5 "$DEXOPT_LOG"
+
+# STEP 7: Cek hasil kompilasi
+echo ""
+echo "🔍 [7/6] Mengecek hasil kompilasi DexOpt untuk aplikasi user..."
+pm list packages -3 | cut -d: -f2 | while read pkg; do
+  status=$(cmd package dump "$pkg" | grep -i 'status=' | head -n1 | sed 's/^[[:space:]]*//')
+  echo "$pkg: $status"
+done > /data/local/tmp/compile_status.log
+
+echo "[✓] Status kompilasi disimpan ke: /data/local/tmp/compile_status.log"
+
+# === [7] Reboot opsional ===
+if [ "$REBOOT_MODE" = "--reboot" ]; then
+  echo "🔁 Rebooting to system..." && sleep 1 && reboot
+elif [ "$REBOOT_MODE" = "--recovery" ]; then
+  echo "🔁 Rebooting to recovery..." && sleep 1 && reboot recovery
+fi

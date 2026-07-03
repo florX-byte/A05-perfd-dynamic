@@ -1,0 +1,184 @@
+#!/system/bin/sh
+
+echo "[+] Memulai debloat dan matikan service berat..."
+logfile="/data/local/tmp/debloated_packages.txt"
+rm -f "$logfile"
+touch "$logfile"
+
+# Fungsi uninstall + log
+uninstall_pkg() {
+  pkg="$1"
+  if pm list packages | grep -q "$pkg"; then
+    echo "[-] Uninstall $pkg"
+    pm uninstall --user 0 "$pkg" && echo "$pkg" >> "$logfile"
+  fi
+}
+
+# Fungsi heavy disable service 
+disable_service() {
+  echo "[-] Disable service: $1"
+  stop "$1" 2>/dev/null
+}
+
+# 🔧 Matikan service berat Samsung
+disable_service com.samsung.android.bixby.service
+disable_service com.samsung.android.kidsinstaller
+disable_service com.samsung.android.tvplus
+disable_service com.samsung.android.game.gos
+disable_service com.samsung.android.spay
+disable_service com.samsung.android.mdx
+disable_service com.samsung.android.rubin.app
+disable_service com.samsung.android.scloud
+disable_service com.samsung.systemui.bixby2
+disable_service com.samsung.android.app.tips
+# 🔧 Google apps aman dihapus
+uninstall_pkg "google.android.apps.docs"
+uninstall_pkg "google.android.apps.maps"
+uninstall_pkg "google.android.apps.photos"
+uninstall_pkg "google.android.apps.wellbeing"
+uninstall_pkg "google.android.apps.tachyon"
+uninstall_pkg "google.android.gm"
+uninstall_pkg "google.android.googlequicksearchbox"
+uninstall_pkg "google.android.music"
+uninstall_pkg "google.android.tts"
+uninstall_pkg "google.android.videos"
+uninstall_pkg "google.android.youtube"
+uninstall_pkg "google.android.apps.books"
+uninstall_pkg "google.android.talk"
+
+# 🔧 Samsung apps aman dihapus
+uninstall_pkg "cnn.mobile.android.phone.edgepanel"
+uninstall_pkg "samsung.android.service.peoplestripe"
+uninstall_pkg "samsung.android.app.sbrowseredge"
+uninstall_pkg "samsung.android.app.appsedge"
+uninstall_pkg "sec.android.desktopmode.uiservice"
+uninstall_pkg "samsung.desktopsystemui"
+uninstall_pkg "sec.android.app.desktoplauncher"
+uninstall_pkg "samsung.android.kidsinstaller"
+uninstall_pkg "samsung.android.app.camera.sticker.facearavatar.preload"
+uninstall_pkg "sec.android.app.kidshome"
+uninstall_pkg "samsung.android.hmt.vrsvc"
+uninstall_pkg "samsung.android.app.vrsetupwizardstub"
+uninstall_pkg "samsung.android.hmt.vrshell"
+uninstall_pkg "google.vr.vrcore"
+uninstall_pkg "samsung.android.game.gamehome"
+uninstall_pkg "enhance.gameservice"
+uninstall_pkg "samsung.android.game.gametools"
+uninstall_pkg "samsung.android.game.gos"
+uninstall_pkg "samsung.android.gametuner.thin"
+uninstall_pkg "android.bips"
+uninstall_pkg "google.android.printservice.recommendation"
+uninstall_pkg "android.printspooler"
+uninstall_pkg "samsung.android.aremoji"
+uninstall_pkg "sec.android.mimage.avatarstickers"
+uninstall_pkg "samsung.android.emojiupdater"
+uninstall_pkg "samsung.android.da.daagent"
+uninstall_pkg "samsung.android.samsungpassautofill"
+uninstall_pkg "samsung.android.authfw"
+uninstall_pkg "samsung.android.samsungpass"
+uninstall_pkg "samsung.android.spay"
+uninstall_pkg "samsung.android.spayfw"
+uninstall_pkg "samsung.android.messaging"
+uninstall_pkg "sec.android.easyonehand"
+uninstall_pkg "samsung.android.drivelink.stub"
+uninstall_pkg "sec.android.widgetapp.samsungapps"
+uninstall_pkg "sec.android.app.sbrowser"
+uninstall_pkg "samsung.android.mateagent"
+uninstall_pkg "sec.android.easyMover.Agent"
+uninstall_pkg "samsung.android.app.watchmanagerstub"
+uninstall_pkg "sec.android.daemonapp"
+uninstall_pkg "samsung.android.app.social"
+uninstall_pkg "samsung.ecomm.global"
+uninstall_pkg "sec.android.app.voicenote"
+uninstall_pkg "samsung.android.oneconnect"
+uninstall_pkg "samsung.android.voc"
+uninstall_pkg "sec.android.app.popupcalculator"
+uninstall_pkg "sec.android.splitsound"
+uninstall_pkg "mobeam.barcodeService"
+uninstall_pkg "samsung.android.app.dressroom"
+uninstall_pkg "samsung.android.scloud"
+uninstall_pkg "samsung.android.sdk.handwriting"
+uninstall_pkg "samsung.android.sdk.professionalaudio.utility.jammonitor"
+uninstall_pkg "samsung.android.universalswitch"
+uninstall_pkg "samsung.android.visioncloudagent"
+uninstall_pkg "samsung.android.visionintelligence"
+uninstall_pkg "samsung.android.widgetapp.yahooedge.finance"
+uninstall_pkg "samsung.android.widgetapp.yahooedge.sport"
+uninstall_pkg "samsung.app.highlightplayer"
+uninstall_pkg "samsung.safetyinformation"
+uninstall_pkg "samsung.storyservice"
+uninstall_pkg "samsung.android.service.aircommand"
+uninstall_pkg "samsung.android.app.aodservice"
+uninstall_pkg "sec.android.app.dexonpc"
+uninstall_pkg "samsung.android.ardrawing"
+uninstall_pkg "samsung.android.svoiceime"
+uninstall_pkg "samsung.android.beaconmanager"
+uninstall_pkg "samsung.android.email.provider"
+uninstall_pkg "wsomacp"
+uninstall_pkg "samsung.android.bixby.wakeup"
+uninstall_pkg "samsung.android.app.spage"
+uninstall_pkg "samsung.android.app.routines"
+uninstall_pkg "samsung.android.bixby.service"
+uninstall_pkg "samsung.android.bixby.agent"
+uninstall_pkg "samsung.android.bixby.agent.dummy"
+uninstall_pkg "samsung.android.bixbyvision.framework"
+
+# 🔧 Debloat TouchWiz Samsung Android 6
+for pkg in \
+com.sec.android.app.controlpanel \
+com.sec.android.easysettings \
+com.sec.android.widgetapp.webmanual \
+com.samsung.android.mateagent \
+com.sec.android.widgetapp.samsungapps \
+com.sec.android.app.sbrowser \
+com.sec.android.daemonapp \
+com.sec.android.app.music \
+com.samsung.android.themestore \
+com.samsung.android.themecenter \
+com.samsung.android.app.simplesharing \
+com.samsung.android.email.provider \
+com.samsung.android.email.sync \
+com.samsung.android.allshare.service.fileshare \
+com.sec.android.easyMover.Agent \
+com.sec.android.app.popupcalculator \
+com.samsung.android.keyguardwallpaperupdator \
+com.samsung.android.app.watchmanagerstub \
+com.sec.android.app.shealth \
+com.samsung.android.scloud \
+com.samsung.android.dlp.service \
+com.samsung.android.widgetapp.yahooedge.finance \
+com.samsung.android.widgetapp.yahooedge.sport \
+com.samsung.android.fmm \
+com.samsung.android.drivelink.stub \
+com.samsung.android.widget.weatherclock \
+com.samsung.android.smartsuggestion \
+com.samsung.android.app.dressroom \
+com.samsung.android.sdk.professionalaudio.utility.jammonitor \
+com.samsung.android.kies \
+com.samsung.android.app.social \
+com.samsung.android.storyservice \
+com.samsung.android.svoiceime \
+com.samsung.android.voicewakeup \
+com.samsung.android.bixby.wakeup \
+com.samsung.android.bixby.agent.dummy \
+com.samsung.android.bixby.service \
+com.samsung.android.bixby.agent \
+com.sec.android.app.applinker \
+com.sec.android.app.billing \
+com.sec.android.inputmethod \
+com.sec.android.inputmethod.traditionalchinesekeyboard \
+com.samsung.android.sdk.handwriting \
+com.samsung.android.personalpage.service \
+com.sec.android.service.health \
+com.samsung.android.wellbeing; do
+    uninstall_pkg "$pkg"
+done
+
+echo "[✓] Debloat selesai."
+echo "[✓] Daftar aplikasi yang dihapus disimpan di:"
+echo "    $logfile"
+
+# 🔁 Reboot prompt
+echo "[⏳] Reboot dalam 10 detik..."
+sleep 10
+reboot

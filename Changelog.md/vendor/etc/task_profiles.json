@@ -1,0 +1,177 @@
+{
+  "Attributes": [
+    {
+      "Name": "MemLimit",
+      "Controller": "memory",
+      "File": "memory.limit_in_bytes"
+    },
+    {
+      "Name": "MemSoftLimit",
+      "Controller": "memory",
+      "File": "memory.soft_limit_in_bytes"
+    },
+    {
+      "Name": "MemSwappiness",
+      "Controller": "memory",
+      "File": "memory.swappiness"
+    }
+  ],
+  "Profiles": [
+    {
+      "Name": "MaxIoPriority",
+      "Actions": [
+        {
+          "Name": "JoinCgroup",
+          "Params": {
+            "Controller": "blkio",
+            "Path": "top"
+          }
+        }
+      ]
+    },
+    {
+      "Name": "TimerSlackFast",
+      "Actions": [
+        {
+          "Name": "SetTimerSlack",
+          "Params": {
+            "Slack": "1000"
+          }
+        }
+      ]
+    },
+    {
+      "Name": "PerfBoostMax",
+      "Actions": [
+        {
+          "Name": "SetClamps",
+          "Params": {
+            "Boost": "100%",
+            "Clamp": "0"
+          }
+        }
+      ]
+    },
+    {
+      "Name": "HighMemoryUsage",
+      "Actions": [
+        {
+          "Name": "SetAttribute",
+          "Params": {
+            "Name": "MemSoftLimit",
+            "Value": "1024MB"
+          }
+        },
+        {
+          "Name": "SetAttribute",
+          "Params": {
+            "Name": "MemSwappiness",
+            "Value": "10"
+          }
+        }
+      ]
+    },
+    {
+      "Name": "SystemMemoryProcess",
+      "Actions": [
+        {
+          "Name": "JoinCgroup",
+          "Params": {
+            "Controller": "memory",
+            "Path": "system"
+          }
+        }
+      ]
+    }
+  ],
+  "AggregateProfiles": [
+    {
+      "Name": "SCHED_SP_DEFAULT",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "SCHED_SP_BACKGROUND",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "SCHED_SP_FOREGROUND",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "SCHED_SP_TOP_APP",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "SCHED_SP_RT_APP",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "CPUSET_SP_DEFAULT",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "CPUSET_SP_BACKGROUND",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "CPUSET_SP_FOREGROUND",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "CPUSET_SP_TOP_APP",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "CPUSET_SP_SYSTEM",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    },
+    {
+      "Name": "CPUSET_SP_RESTRICTED",
+      "Profiles": [
+        "PerfBoostMax",
+        "MaxIoPriority",
+        "TimerSlackFast"
+      ]
+    }
+  ]
+}

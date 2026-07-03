@@ -1,0 +1,20 @@
+#!/system/bin/sh
+
+# Lock target frekuensi GPU (1GHz = 1000000000, 1000000 pada node berbeda satuan)
+TARGET_FREQ_SYSFS=1000000000
+TARGET_FREQ_KERNEL=1000000
+
+# Path node
+DEVFREQ_PATH="/sys/class/devfreq/13040000.mali"
+KERNEL_PATH="/sys/kernel/gpu"
+
+# Loop untuk menjaga frekuensi tetap terkunci
+while true; do
+    echo "$TARGET_FREQ_SYSFS" > "$DEVFREQ_PATH/max_freq"
+    echo "$TARGET_FREQ_SYSFS" > "$DEVFREQ_PATH/min_freq"
+    echo "$TARGET_FREQ_KERNEL" > "$KERNEL_PATH/gpu_max_clock"
+    echo "$TARGET_FREQ_KERNEL" > "$KERNEL_PATH/gpu_min_clock"
+echo "looping for lock gpu freq to 1ghz...."
+sleep 0.3
+clear
+done

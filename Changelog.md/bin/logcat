@@ -1,0 +1,3 @@
+#!/system/bin/sh
+echo "logcat disabled"
+exit 0

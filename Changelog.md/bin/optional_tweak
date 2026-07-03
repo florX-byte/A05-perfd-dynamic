@@ -1,0 +1,311 @@
+#!/system/bin/sh
+
+sleep 70
+# ==============================================================================
+# PERFORMANCE CONFIGURATION ARCHITECTURE (Unified & Dynamic Engine)
+# Target Platform: MediaTek G80/G85/G88/G91 (Samsung A05)
+# Version: 2.7 (Major Update)
+# ==============================================================================
+
+# ==============================================================================
+# [FUNGSI HELPER MASTER] - Penulisan Jalur Sistem Aman & Terpadu
+# ==============================================================================
+write_val() {
+    [ -e "$2" ] && echo "$1" > "$2" 2>/dev/null
+}
+
+set_boost() {
+    local type=$1 head=$2 tail=$3 level=$4
+    write_val "$head" "/sys/class/input_booster/$type/head"
+    write_val "$tail" "/sys/class/input_booster/$type/tail"
+    write_val "$level" "/sys/class/input_booster/$type/level"
+}
+
+# ==============================================================================
+# PHASE 1: INITIAL SYSTEM CLEANING & LOGGING DEACTIVATION
+# ==============================================================================
+# Lumpuhkan pencatatan log sistem (Mengurangi beban I/O & siklus CPU)
+stop logd
+write_val 0666 /system/bin/logcat
+stop connsyslogger; stop emdlogger; stop ewlogd; stop mobile_log_d
+for log_prop in connsyslogger emdlogger ewlogd mobile_log_d; do
+    setprop "persist.sys.${log_prop}.enable" false
+done
+
+# Atur ulang izin akses folder sistem penting
+mount -o rw,remount /system/bin/ 2>/dev/null
+mount -o rw,remount /sys 2>/dev/null
+chmod 0755 /system/bin/gpulock /system/bin/cleaner /system/bin/optional_tweak /system/bin/boost_loader /system/bin/boost_add /system/bin/debloat 2>/dev/null
+chmod 0666 /sys/class/thermal/thermal_zone*/trip_point_*_temp /sys/class/leds/lcd-backlight/brightness 2>/dev/null
+
+# ==============================================================================
+# PHASE 2: KERNEL SCHEDULER & ADVANCED CPU TUNING
+# ==============================================================================
+SYSCTL_DIR="/proc/sys/kernel"
+
+# Optimasi batas waktu deadline penjadwal kernel
+write_val 100 "$SYSCTL_DIR/sched_deadline_period_min_us"
+write_val 4194304 "$SYSCTL_DIR/sched_deadline_period_max_us"
+write_val 1 "$SYSCTL_DIR/sched_energy_aware"
+write_val 4 "$SYSCTL_DIR/sched_pelt_multiplier"
+write_val 40 "$SYSCTL_DIR/sched_rr_timeslice_ms"
+write_val 1000000 "$SYSCTL_DIR/sched_rt_period_us"
+write_val 950000 "$SYSCTL_DIR/sched_rt_runtime_us"
+
+# Kunci batas beban utilitas CPU rata kanan (100% Core Force Allocation)
+write_val 1024 "$SYSCTL_DIR/sched_util_clamp_max"
+write_val 1024 "$SYSCTL_DIR/sched_util_clamp_min"
+write_val 128 "$SYSCTL_DIR/sched_util_clamp_min_rt_default"
+write_val 1 "$SYSCTL_DIR/sched_schedstats"
+write_val NO_HZ /sys/kernel/debug/sched_features
+write_val GENTLE_FAIR_SLEEPERS /sys/kernel/debug/sched_features
+
+# MediaTek PPM (Predictive Power Management) Bypass
+write_val "4 1" /proc/ppm/policy_status
+write_val 0 /proc/ppm/policy/thermal_limit
+write_val 1 /proc/ppm/policy/hard_userlimit_cpu_freq
+write_val 0 /proc/ppm/policy/forcelimit_cpu_core
+write_val 0 /proc/ppm/enabled
+for i in 0 1 2 3 5 6 7 8 9; do write_val "$i 0" /proc/ppm/policy_status; done
+
+# CPU Governor & Core Scaling
+write_val teo /sys/devices/system/cpu/cpuidle/current_governor
+write_val 50 /sys/devices/system/cpu/cpufreq/sugov_ext/up_rate_limit_us
+write_val 1500 /sys/devices/system/cpu/cpufreq/sugov_ext/down_rate_limit_us
+write_val 3 /proc/cpufreq/cpufreq_power_mode
+write_val 1 /sys/devices/system/cpu/perf/enable
+write_val 0 /proc/cpufreq/cpufreq_sched_disable
+write_val 1 /proc/cpufreq/cpufreq_cci_mode
+
+# CPUSET Core Balancer & Latency Grouping
+for grp in foreground background system-background top-app camera-daemon restricted; do
+    write_val 0-7 "/dev/cpuset/$grp/cpus"
+    write_val 0 "/dev/cpuset/$grp/sched_load_balance"
+    write_val 0 "/dev/cpuset/$grp/sched_relax_domain_level"
+    write_val 1 "/dev/cpuset/$grp/notify_on_release"
+done
+write_val 0 /dev/cpuset/sched_load_balance
+write_val 0 /dev/cpuset/sched_relax_domain_level
+write_val 1 /dev/cpuset/notify_on_release
+
+# CPUctl Resource Weight Allocation
+write_val 1024 /dev/cpuctl/top-app/cpu.shares
+write_val 896 /dev/cpuctl/foreground/cpu.shares
+write_val 512 /dev/cpuctl/system/cpu.shares
+write_val 256 /dev/cpuctl/background/cpu.shares
+write_val 128 /dev/cpuctl/system-background/cpu.shares
+for uclamp in /dev/cpuctl/*/cpu.uclamp.latency_sensitive; do write_val 1 "$uclamp"; done
+
+# Virtual Memory & Engine ZRAM
+write_val lz4 /sys/block/zram0/comp_algorithm
+write_val 1 /sys/block/zram0/queue/nomerges
+for node in add_random iostats; do write_val 0 "/sys/block/zram0/queue/$node"; done
+write_val 4096 /sys/block/zram0/queue/read_ahead_kb
+write_val 70 /proc/sys/vm/swappiness
+write_val 2 /proc/sys/vm/page-cluster
+write_val 50 /proc/sys/vm/vfs_cache_pressure
+write_val 150000000 /proc/sys/vm/dirty_bytes_left
+write_val 50 /proc/sys/vm/overcommit_ratio
+write_val 31615 /proc/sys/vm/extra_free_kbytes
+write_val 32768 /proc/sys/vm/min_free_kbytes
+write_val 0 /proc/sys/vm/oom_kill_allocating_task
+write_val 10 /proc/sys/vm/dirty_ratio
+write_val 40 /proc/sys/vm/dirty_background_ratio
+
+# ==============================================================================
+# PHASE 3: INTERFACES, TOUCH_BOOST & DISPLAY HARD TUNING
+# ==============================================================================
+# Driver Grafis ANGLE Force Load
+settings put global angle_gl_driver_all_angle 0
+
+# MediaTek GED (GPU Extension Driver) Overclock Injection
+write_val 3 /sys/kernel/ged/hal/gpu_fps
+write_val 1000000 /sys/kernel/ged/hal/custom_boost_gpu_freq
+write_val 1000000 /sys/kernel/ged/hal/custom_upbound_gpu_freq
+write_val 0 /sys/kernel/ged/hal/apo_autosuspend_delay_ms
+write_val 0 /sys/kernel/ged/hal/autosuspend_stress
+
+# Modul Touch Boost Optimal (Responsivitas Sentuhan & Gesture)
+write_val 1 /proc/touch_boost/enable
+write_val 1 /proc/touch_boost/boost_up
+write_val 1 /proc/touch_boost/boost_down
+write_val 450 /proc/touch_boost/boost_duration
+write_val 1 /proc/touch_boost/boost_fg
+write_val 100 /proc/touch_boost/boost_ta
+write_val 0 /proc/touch_boost/force_stop_boost
+write_val 1 /proc/touch_boost/idleprefer_fg
+write_val 1 /proc/touch_boost/idleprefer_ta
+
+# Alokasi Core Cluster OPP Boost
+write_val 2 /proc/touch_boost/boost_opp_cluster_0
+write_val 2 /proc/touch_boost/boost_opp_cluster_1
+write_val -1 /proc/touch_boost/boost_opp_cluster_2
+
+# Input Booster Framework Tuning
+set_boost "touch" 200 400 3
+set_boost "multitouch" 180 360 3
+set_boost "keyboard" 150 300 3
+write_val 1 /sys/class/input_booster/sendevent
+write_val 0 /sys/class/input_booster/debug_level
+write_val 0 /sys/class/input_booster/enable_event
+
+# High-Tier Android UI Framework Optimization
+settings put global window_animation_scale 1
+settings put global transition_animation_scale 1
+settings put global animator_duration_scale 1
+settings put system peak_refresh_rate 60
+settings put system min_refresh_rate 60
+
+# Perbaikan logika evaluasi biner agar settings put berjalan lancar tanpa bentrok sintaksis
+settings put global skia_shader_cache_enabled 1
+settings put global debug.sf.latch_unsignaled 1
+settings put global otg_enabled 1
+settings put global enable_gpu_debug_layers 0
+settings put global updatable_driver_all_apps 0
+settings put global updatable_driver_production_opt_out_apps 0
+settings put global persist.sys.sf.native_mode 2
+
+# Force saturasi warna 1.3x (Warna Visual Lebih Vibrant & Hidup)
+service call SurfaceFlinger 1022 f 1.3 2>/dev/null
+
+# ==============================================================================
+# PHASE 4: NETWORK CONGESTION CONTROL & MTK UNDERVOLTING
+# ==============================================================================
+write_val 500000 /proc/sys/net/core/netdev_max_backlog
+for max_mem in rmem_max wmem_max; do write_val 262144 "/proc/sys/net/core/$max_mem"; done
+write_val 4096 /proc/sys/net/core/optmem_max
+write_val 2048 /proc/sys/net/core/somaxconn
+write_val "4096 87380 262144" /proc/sys/net/ipv4/tcp_rmem
+write_val "4096 65536 262144" /proc/sys/net/ipv4/tcp_wmem
+for net_opt in window_scaling sack timestamps ecn no_metrics_save low_latency mtu_probing; do write_val 1 "/proc/sys/net/ipv4/tcp_${net_opt}"; done
+grep -q "bbr" /proc/sys/net/ipv4/tcp_available_congestion_control && write_val bbr /proc/sys/net/ipv4/tcp_congestion_control || write_val cubic /proc/sys/net/ipv4/tcp_congestion_control
+write_val 4096 /proc/sys/net/ipv4/neigh/default/gc_thresh1
+write_val 8192 /proc/sys/net/ipv4/neigh/default/gc_thresh2
+write_val 16384 /proc/sys/net/ipv4/neigh/default/gc_thresh3
+write_val 30000 /proc/sys/net/ipv4/neigh/default/base_reachable_time_ms
+write_val 30000 /proc/sys/net/ipv4/neigh/wlan0/base_reachable_time_ms
+write_val 0 /proc/sys/net/ipv4/conf/all/accept_redirects
+write_val 0 /proc/sys/net/ipv4/conf/all/send_redirects
+write_val 2048 /proc/sys/net/ipv4/tcp_adv_win_scale
+setprop net.dns1 1.1.1.1
+setprop net.dns2 8.8.8.8
+
+# MediaTek EEM Undervolting (Balance Mode - Diatur ke 0 untuk mencegah degradasi daya mendadak)
+write_val 0 /proc/eem/EEM_DET_L/eem_offset
+write_val 0 /proc/eem/EEM_DET_B/eem_offset
+write_val 0 /proc/eem/EEM_DET_CCI/eem_offset
+write_val 0 /proc/eem/EEM_DET_GPU/eem_offset
+
+# ==============================================================================
+# PHASE 5: CRITICAL THERMAL BYPASS & FORCE OVERCLOCK
+# ==============================================================================
+stop thermal; stop thermald; stop thermal_manager; stop thermalloadalgod; stop vendor.thermal-hal; stop vendor.thermal-integratek; stop vendor.thermal-mediatek
+sleep 1
+
+for tz_mode in /sys/class/thermal/thermal_zone*/mode; do
+    write_val disabled "$tz_mode"
+done
+
+TZ="/sys/class/thermal/thermal_zone8"
+write_val 117000 $TZ/trip_point_0_temp
+write_val 90000 $TZ/trip_point_1_temp
+write_val 70000 $TZ/trip_point_2_temp
+write_val step_wise $TZ/policy
+write_val disabled $TZ/mode
+
+# Proteksi Charging Anti-Throttling
+write_val 0 /sys/devices/platform/charger/ap_thermal
+write_val 1 /sys/devices/platform/charger/sw_jeita
+write_val 0 /sys/devices/platform/charger/Thermal_throttle
+write_val 0 /sys/devices/platform/charger/Thermal_trottle
+
+stop vendor.thermal-hal
+resetprop persist.vendor.thermal.engine.disable 1
+resetprop ro.vendor.mtk_thermal_2_0 0
+
+# MediaTek Turbo Task & CPU Loading Injector
+write_val 15 /sys/module/task_turbo/parameters/feats
+for tt_param in enable_tt_vip enable_tgd enable_binder_vip_inheritance enable_binder_nonvip_inheritance; do write_val 1 "/sys/module/task_turbo/parameters/$tt_param"; done
+write_val 0 /proc/cpu_loading/poltime_secs
+write_val 200000000 /proc/cpu_loading/poltime_nsecs
+write_val 0 /proc/powerhal_cpu_ctrl/adpf_enable
+
+# RAM & GMS Debloat Force Stop
+pm disable com.google.android.gms/.chimera.GmsIntentOperationService 2>/dev/null
+am force-stop com.google.android.gms
+am force-stop com.android.chrome
+
+# Mali GPU Hard Lock Max Frequency & Disable DVFS
+write_val 0 /sys/module/ged/parameters/gpu_dvfs_enable
+write_val 0 /sys/module/ged/parameters/gpu_opp_logs_enable
+write_val 0 /sys/kernel/ged/hal/dvfs_workload_mode
+write_val 2 /sys/kernel/ged/hal/dvfs_loading_mode
+write_val 100 /sys/kernel/ged/hal/dvfs_margin_value
+write_val 20 /sys/kernel/ged/hal/dvfs_async_ratio
+write_val 30 /sys/devices/platform/13040000.mali/dvfs_period
+write_val 1 /sys/module/ged/parameters/boost_gpu_enable
+write_val 1 /sys/module/ged/parameters/ged_smart_boost
+write_val 1 /sys/module/ged/parameters/g_gpu_timer_based_emu
+write_val 25 /sys/module/ged/parameters/gpu_idle
+write_val 1000000 /sys/module/ged/parameters/gpu_cust_boost_freq
+for fallback in default_fps_margin_support fallback_frequency_adjust fallback_interval fallback_window_size timer_base_dvfs_margin early_force_fallback_policy; do
+    write_val 0 "/sys/kernel/ged/hal/$fallback"
+done
+write_val performance /sys/class/devfreq/13040000.mali/governor
+write_val 1000000000 /sys/class/devfreq/13040000.mali/max_freq
+write_val 299000000 /sys/class/devfreq/13040000.mali/min_freq
+write_val coarse_demand /sys/devices/platform/13040000.mali/power_policy
+write_val none /sys/devices/platform/13040000.mali/scheduling/serialize_jobs
+write_val 1000000 /sys/kernel/gpu/gpu_max_clock
+write_val 299000 /sys/kernel/gpu/gpu_min_clock
+
+# Priority Adjustments for Core Framework
+PID_SF=$(pidof surfaceflinger)
+if [ -n "$PID_SF" ]; then
+    renice -n -20 -p "$PID_SF"
+    service call SurfaceFlinger 1008 i32 1 2>/dev/null
+fi
+
+PID_SS=$(pidof system_server)
+if [ -n "$PID_SS" ]; then
+    echo -1000 > "/proc/$PID_SS/oom_score_adj" 2>/dev/null
+    write_val 10000 "/proc/$PID_SS/timerslack_ns"
+fi
+
+# ==============================================================================
+# PHASE 6: STORAGE I/O DEADLINE TUNING & LOADER EXECUTION
+# ==============================================================================
+# Block Storage Queue Tuning Menggunakan Deadline Scheduler (Sesuai Konfigurasi V2.7 Anda)
+for blk in mmcblk0 mmcblk1 mmcblk0boot0; do
+    write_val deadline "/sys/block/$blk/queue/scheduler"
+    write_val 1024 "/sys/block/$blk/queue/read_ahead_kb"
+    write_val 0 "/sys/block/$blk/queue/iostats"
+    write_val 1 "/sys/block/$blk/queue/nomerges"
+    write_val 4 "/sys/block/$blk/queue/iosched/fifo_batch"
+    write_val 64 "/sys/block/$blk/queue/iosched/async_depth"
+    write_val 4 "/sys/block/$blk/queue/iosched/writes_starved"
+    write_val 9000 "/sys/block/$blk/queue/iosched/prio_aging_expire"
+    write_val 3000 "/sys/block/$blk/queue/iosched/write_expire"
+    write_val 0 "/sys/block/$blk/queue/iosched/front_merges"
+    write_val 300 "/sys/block/$blk/queue/iosched/read_expire"
+    for s_idle in slice_idle slice_idle_us strict_guarantees; do write_val 0 "/sys/block/$blk/queue/iosched/$s_idle"; done
+done
+
+# Advanced Logged FSTRIM on Boot
+FSTRIM_LOG="/sdcard/log_tweak.log"
+echo "[+] FSTRIM dijalankan pada: $(date)" >> "$FSTRIM_LOG"
+/data/adb/magisk/busybox fstrim -v / >> "$FSTRIM_LOG" 2>&1
+/data/adb/magisk/busybox fstrim -v /data >> "$FSTRIM_LOG" 2>&1
+/data/adb/magisk/busybox fstrim -v /cache >> "$FSTRIM_LOG" 2>&1
+/system/bin/fstrim -v /system_ext >> "$FSTRIM_LOG" 2>&1
+echo "[+] FSTRIM selesai pada: $(date)" >> "$FSTRIM_LOG"
+echo "--------------------------------------------" >> "$FSTRIM_LOG"
+
+resetprop ro.config.dmverity false
+
+# Pemicu Eksekusi Akhir Script Eksternal Loader
+/system/bin/boost_loader
+
+write_val 3 /proc/sys/vm/drop_caches
+echo "[✅] A055-perfd: Performa stabil & agresif aktif" > /dev/kmsg
+exit 0
